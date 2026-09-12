@@ -1,0 +1,24 @@
+<?php
+
+namespace Irnoti\SmsPanelApi\Resources;
+
+use Irnoti\SmsPanelApi\IrnotiClient;
+
+abstract class Resource
+{
+    public function __construct(protected IrnotiClient $client)
+    {
+    }
+
+    /**
+     * Drop null values so optional fields are simply omitted from the
+     * request instead of being sent as explicit nulls.
+     *
+     * @param  array<string, mixed>  $payload
+     * @return array<string, mixed>
+     */
+    protected function filter(array $payload): array
+    {
+        return array_filter($payload, static fn ($value) => $value !== null);
+    }
+}

@@ -56,7 +56,7 @@ Add your access key to `.env`:
 
 ```dotenv
 IRNOTI_API_KEY=irnt_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-IRNOTI_API_BASE_URL=https://irnoti.com/api
+IRNOTI_API_BASE_URL=https://api.irnoti.com
 ```
 
 > Treat the access key like a password. It is only ever shown once, at creation time, in `/dashboard/api-keys` — irnoti stores nothing but its hash. Revoke and reissue it from that same page if it's ever exposed.
@@ -272,13 +272,13 @@ $client->sms()->send(to: $customer->mobile, message: 'Welcome aboard!');
 
 `config/sms-panel-api.php`:
 
-| Key | Environment variable | Default | Description |
-|---|---|---|---|
-| `base_url` | `IRNOTI_API_BASE_URL` | `https://irnoti.com/api` | Root of the panel API. |
-| `key` | `IRNOTI_API_KEY` | — | Your access key from `/dashboard/api-keys`. |
-| `timeout` | `IRNOTI_API_TIMEOUT` | `15` | Per-request timeout, in seconds. |
-| `retry.times` | `IRNOTI_API_RETRY_TIMES` | `1` | Attempts for transient network failures (`1` disables retrying). |
-| `retry.sleep` | `IRNOTI_API_RETRY_SLEEP` | `200` | Delay between retries, in milliseconds. |
+| Key           | Environment variable     | Default                  | Description                                                      |
+| ------------- | ------------------------ | ------------------------ | ---------------------------------------------------------------- |
+| `base_url`    | `IRNOTI_API_BASE_URL`    | `https://api.irnoti.com` | Root of the panel API.                                           |
+| `key`         | `IRNOTI_API_KEY`         | —                        | Your access key from `/dashboard/api-keys`.                      |
+| `timeout`     | `IRNOTI_API_TIMEOUT`     | `15`                     | Per-request timeout, in seconds.                                 |
+| `retry.times` | `IRNOTI_API_RETRY_TIMES` | `1`                      | Attempts for transient network failures (`1` disables retrying). |
+| `retry.sleep` | `IRNOTI_API_RETRY_SLEEP` | `200`                    | Delay between retries, in milliseconds.                          |
 
 ## Testing
 
