@@ -1,6 +1,6 @@
 {
     "name": "irnoti/laravel-sms-panel-api",
-    "description": "Official Laravel SDK for the irnoti SMS Panel public API — send SMS, run scheduled/gradual/regional/targeted/smart/peyamap/link-tracker campaigns, and sync your phonebook with a clean, typed, fluent client.",
+    "description": "Official Laravel SDK for the irnoti platform API — SMS (single, bulk, pattern, scheduled, gradual, SOS), provider services, phonebook, link tracker, number banks, verify, bots and VoIP, with a typed fluent client and webhook verification.",
     "type": "library",
     "license": "MIT",
     "keywords": [
@@ -18,7 +18,7 @@
     "support": {
         "issues": "https://github.com/irnoti/laravel-sms-panel-api/issues",
         "source": "https://github.com/irnoti/laravel-sms-panel-api",
-        "docs": "https://irnoti.com/developers"
+        "docs": "https://irnoti.com/docs"
     },
     "authors": [
         {

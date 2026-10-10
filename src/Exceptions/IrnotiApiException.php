@@ -7,23 +7,20 @@ use RuntimeException;
 use Throwable;
 
 /**
- * Thrown for every non-success response the irnoti panel API returns.
+ * Thrown for every non-2xx response the irnoti API returns.
  *
- * The API always answers errors as:
+ * The HTTP status decides the class of failure; the body carries
+ * `message` and, for domain errors, a stable machine-readable `code`
+ * (e.g. "insufficient_balance", "invalid_recipients", "no_price") plus
+ * optional `details` (invalid numbers, missing template params, per-field
+ * validation errors).
  *
- *   {"success": false, "error": {"code": "...", "message": "...", "details"?: {...}}}
- *
- * `code` is a stable, namespaced, English identifier your code can safely
- * switch on (e.g. "sms.insufficient_balance"); `message` is a human-readable
- * English description; `details` — when present — mirrors Laravel's
- * per-field validation error bag.
- *
- * @see https://irnoti.com/developers
+ * @see https://irnoti.com/docs
  */
 class IrnotiApiException extends RuntimeException
 {
     /**
-     * @param  array<string, mixed>  $details
+     * @param  array<int|string, mixed>  $details
      */
     public function __construct(
         string $message,
@@ -32,79 +29,107 @@ class IrnotiApiException extends RuntimeException
         protected array $details = [],
         ?Throwable $previous = null,
     ) {
-        parent::__construct($message, 0, $previous);
+        parent::__construct($message, $statusCode, $previous);
     }
 
     public static function fromResponse(Response $response): self
     {
-        $payload = $response->json() ?? [];
-        $error = $payload['error'] ?? [];
+        $body = $response->json();
+        $body = is_array($body) ? $body : [];
+
+        $message = $body['message'] ?? null;
+        if (is_array($message)) {
+            $message = implode(' ', array_map('strval', $message));
+        }
+
+        $details = $body['details'] ?? [];
 
         return new self(
-            message: $error['message'] ?? 'The irnoti API returned an unexpected error response.',
-            errorCode: $error['code'] ?? 'server.error',
+            message: is_string($message) && $message !== '' ? $message : 'The irnoti API returned an error (HTTP ' . $response->status() . ').',
+            errorCode: (string) ($body['code'] ?? ''),
             statusCode: $response->status(),
-            details: $error['details'] ?? [],
+            details: is_array($details) ? $details : [],
         );
     }
 
     /**
-     * The stable, namespaced error code, e.g. "sms.insufficient_balance".
-     *
-     * @see https://irnoti.com/developers for the full code reference.
+     * The stable machine-readable code, or '' when the API sent only an HTTP status
+     * (plain 401/403/404 answers carry no code).
      */
     public function errorCode(): string
     {
         return $this->errorCode;
     }
 
-    /**
-     * The HTTP status code the API responded with.
-     */
     public function statusCode(): int
     {
         return $this->statusCode;
     }
 
     /**
-     * Laravel-style validation error bag, only present for `validation.failed`.
+     * Extra error context: the invalid numbers for `invalid_recipients`, the missing
+     * variables for `missing_params`, or the per-field bag for `validation_error`.
      *
-     * @return array<string, array<int, string>>
+     * @return array<int|string, mixed>
      */
     public function details(): array
     {
         return $this->details;
     }
 
-    /**
-     * True when the account's wallet balance is too low to cover the send.
-     */
-    public function isInsufficientBalance(): bool
-    {
-        return $this->errorCode === 'sms.insufficient_balance';
-    }
-
-    /**
-     * True when the request was rejected for hitting the per-key rate limit.
-     */
-    public function isRateLimited(): bool
-    {
-        return $this->errorCode === 'rate_limited' || $this->statusCode === 429;
-    }
-
-    /**
-     * True when the access key itself is missing, invalid, revoked or expired.
-     */
-    public function isUnauthenticated(): bool
-    {
-        return in_array($this->errorCode, ['auth.invalid_key', 'auth.unauthenticated'], true);
-    }
-
-    /**
-     * True when request validation failed; inspect details() for field errors.
-     */
     public function isValidationError(): bool
     {
-        return $this->errorCode === 'validation.failed';
+        return $this->errorCode === 'validation_error' || $this->errorCode === 'invalid_recipients' || $this->errorCode === 'missing_params';
+    }
+
+    public function isInvalidRecipients(): bool
+    {
+        return $this->errorCode === 'invalid_recipients';
+    }
+
+    /** 402 — wallet balance cannot cover the send. */
+    public function isInsufficientBalance(): bool
+    {
+        return $this->statusCode === 402 || $this->errorCode === 'insufficient_balance';
+    }
+
+    /** 422 `no_price` — no tariff is defined for this service in your user group. */
+    public function isNoPrice(): bool
+    {
+        return $this->errorCode === 'no_price';
+    }
+
+    /** 429 — too many requests; back off and retry. */
+    public function isRateLimited(): bool
+    {
+        return $this->statusCode === 429;
+    }
+
+    /** 401 — key invalid, revoked, expired, or the caller IP is not whitelisted. */
+    public function isUnauthenticated(): bool
+    {
+        return $this->statusCode === 401;
+    }
+
+    /** 403 — key lacks the scope, KYC is incomplete, or the feature is disabled for the account. */
+    public function isForbidden(): bool
+    {
+        return $this->statusCode === 403;
+    }
+
+    public function isNotFound(): bool
+    {
+        return $this->statusCode === 404;
+    }
+
+    /** 409 — conflict (duplicate group name, no SOS route available, …). */
+    public function isConflict(): bool
+    {
+        return $this->statusCode === 409;
+    }
+
+    public function isServerError(): bool
+    {
+        return $this->statusCode >= 500;
     }
 }

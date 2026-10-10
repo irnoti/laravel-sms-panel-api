@@ -3,62 +3,75 @@
 namespace Irnoti\SmsPanelApi\Resources;
 
 /**
- * «لینک ترکر» — your own recipient list + a destination URL + one body;
- * irnoti mints a unique short link per recipient and reports clicks
- * (time, geo, device, referer) back on the campaign. No provider call is
- * involved — delivery runs on irnoti's own side. Immediate-only.
- * Requires the `sms.link_tracker` ability.
+ * Click-tracked SMS: one unique short link per recipient, with optional A/B text variants and a holdout group.
  */
 class LinkTrackerResource extends Resource
 {
     /**
-     * @return array{items: array<int, array<string, mixed>>, meta: array<string, int>}
-     */
-    public function list(): array
-    {
-        return $this->client->request('get', '/sms/link-tracker');
-    }
-
-    /**
-     * Fetch a campaign together with its click analytics: total clicks,
-     * CTR, and the top 200 links by click count.
+     * Scope: `sms.send` (KYC + `sms.link_tracker` feature required).
      *
+     * @param  array<int, string>  $variants  Up to 2 alternative texts for A/B testing.
+     * @param  array<int, string>  $to
+     * @param  array<int, int|string>  $groupIds
      * @return array<string, mixed>
      */
-    public function get(int $id): array
-    {
-        return $this->client->request('get', "/sms/link-tracker/{$id}");
-    }
-
-    /**
-     * @param  string  $targetUrl  Where each recipient's unique short link redirects to.
-     * @param  string  $message  Use the literal placeholder `{link}` where the short link should be
-     *                           inserted, or omit it to have the link appended to the message.
-     * @param  array<int, string>  $numbers
-     * @param  array<int, int>  $groupIds
-     * @return array<string, mixed>
-     */
-    public function create(
-        string $targetUrl,
-        string $message,
-        array $numbers = [],
+    public function send(
+        string|int $lineId,
+        string $text,
+        string $url,
+        array $to = [],
         array $groupIds = [],
-        ?string $from = null,
+        array $variants = [],
+        ?int $holdoutPercent = null,
+        ?int $decideAfterMinutes = null,
     ): array {
-        return $this->client->request('post', '/sms/link-tracker', $this->filter([
-            'numbers' => $numbers,
-            'group_ids' => $groupIds,
-            'target_url' => $targetUrl,
-            'message' => $message,
-            'from' => $from,
+        return $this->client->request('post', '/link-tracker/send', $this->filter([
+            'lineId' => (string) $lineId,
+            'text' => $text,
+            'url' => $url,
+            'to' => $to ?: null,
+            'groupIds' => $groupIds ? array_map('strval', $groupIds) : null,
+            'variants' => $variants ?: null,
+            'holdoutPercent' => $holdoutPercent,
+            'decideAfterMinutes' => $decideAfterMinutes,
         ]));
     }
 
     /**
-     * Cancel and refund the undelivered portion of a campaign.
+     * Campaigns whose holdout group is still waiting for the winning variant. Scope: `sms.read`.
+     *
+     * @return array<int, array<string, mixed>>
      */
-    public function cancel(int $id): void
+    public function holdouts(): array
     {
-        $this->client->request('delete', "/sms/link-tracker/{$id}");
+        return $this->client->request('get', '/link-tracker/holdouts');
+    }
+
+    /**
+     * Release the holdout group now. Scope: `sms.send`.
+     *
+     * @return array<string, mixed>
+     */
+    public function sendNow(string|int $holdoutId): array
+    {
+        return $this->client->request('post', '/link-tracker/holdouts/' . rawurlencode((string) $holdoutId) . '/send-now');
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    public function campaigns(): array
+    {
+        return $this->client->request('get', '/link-tracker/campaigns');
+    }
+
+    /**
+     * Per-campaign click analytics.
+     *
+     * @return array<string, mixed>
+     */
+    public function campaign(string|int $batchId): array
+    {
+        return $this->client->request('get', '/link-tracker/campaigns/' . rawurlencode((string) $batchId));
     }
 }

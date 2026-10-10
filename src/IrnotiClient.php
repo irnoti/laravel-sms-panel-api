@@ -6,30 +6,30 @@ use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
 use Irnoti\SmsPanelApi\Exceptions\IrnotiApiException;
-use Irnoti\SmsPanelApi\Resources\AccountResource;
-use Irnoti\SmsPanelApi\Resources\GradualResource;
+use Irnoti\SmsPanelApi\Resources\BatchesResource;
+use Irnoti\SmsPanelApi\Resources\BotsResource;
+use Irnoti\SmsPanelApi\Resources\LinesResource;
 use Irnoti\SmsPanelApi\Resources\LinkTrackerResource;
 use Irnoti\SmsPanelApi\Resources\MessagesResource;
-use Irnoti\SmsPanelApi\Resources\PeyamapResource;
+use Irnoti\SmsPanelApi\Resources\NumberBanksResource;
 use Irnoti\SmsPanelApi\Resources\PhonebookResource;
-use Irnoti\SmsPanelApi\Resources\RegionalResource;
-use Irnoti\SmsPanelApi\Resources\ScheduledResource;
-use Irnoti\SmsPanelApi\Resources\SmartResource;
+use Irnoti\SmsPanelApi\Resources\ServicesResource;
 use Irnoti\SmsPanelApi\Resources\SmsResource;
-use Irnoti\SmsPanelApi\Resources\TargetedResource;
+use Irnoti\SmsPanelApi\Resources\VerifyResource;
+use Irnoti\SmsPanelApi\Resources\VoipResource;
+use Irnoti\SmsPanelApi\Resources\WalletResource;
 
 /**
  * The single low-level gateway every resource talks through.
  *
  * You will rarely call {@see request()} directly — reach for the typed
- * resource methods (`$client->sms()->send(...)`, `$client->account()->credit()`, …)
- * instead. This class only knows how to turn a (method, path, payload) tuple
- * into an authenticated HTTP call against `/v1/panel/*` and unwrap the
- * envelope the API always answers with.
+ * resource methods (`$client->sms()->send(...)`, `$client->wallet()->balance()`, …).
+ * This class only turns a (method, path, payload) tuple into an authenticated
+ * call against `{base_url}/v1/*` and decodes the JSON the API answers with.
  */
 class IrnotiClient
 {
-    private const API_PREFIX = '/v1/panel';
+    private const API_PREFIX = '/v1';
 
     public function __construct(
         protected string $baseUrl,
@@ -63,9 +63,9 @@ class IrnotiClient
         return new self($this->baseUrl, $apiKey, $this->timeout, $this->retryTimes, $this->retrySleep);
     }
 
-    public function account(): AccountResource
+    public function sms(): SmsResource
     {
-        return new AccountResource($this);
+        return new SmsResource($this);
     }
 
     public function messages(): MessagesResource
@@ -73,44 +73,19 @@ class IrnotiClient
         return new MessagesResource($this);
     }
 
-    public function sms(): SmsResource
+    public function batches(): BatchesResource
     {
-        return new SmsResource($this);
+        return new BatchesResource($this);
     }
 
-    public function scheduled(): ScheduledResource
+    public function lines(): LinesResource
     {
-        return new ScheduledResource($this);
+        return new LinesResource($this);
     }
 
-    public function gradual(): GradualResource
+    public function wallet(): WalletResource
     {
-        return new GradualResource($this);
-    }
-
-    public function regional(): RegionalResource
-    {
-        return new RegionalResource($this);
-    }
-
-    public function targeted(): TargetedResource
-    {
-        return new TargetedResource($this);
-    }
-
-    public function peyamap(): PeyamapResource
-    {
-        return new PeyamapResource($this);
-    }
-
-    public function smart(): SmartResource
-    {
-        return new SmartResource($this);
-    }
-
-    public function linkTracker(): LinkTrackerResource
-    {
-        return new LinkTrackerResource($this);
+        return new WalletResource($this);
     }
 
     public function phonebook(): PhonebookResource
@@ -118,48 +93,97 @@ class IrnotiClient
         return new PhonebookResource($this);
     }
 
+    public function services(): ServicesResource
+    {
+        return new ServicesResource($this);
+    }
+
+    public function linkTracker(): LinkTrackerResource
+    {
+        return new LinkTrackerResource($this);
+    }
+
+    public function numberBanks(): NumberBanksResource
+    {
+        return new NumberBanksResource($this);
+    }
+
+    public function verify(): VerifyResource
+    {
+        return new VerifyResource($this);
+    }
+
+    public function bots(): BotsResource
+    {
+        return new BotsResource($this);
+    }
+
+    public function voip(): VoipResource
+    {
+        return new VoipResource($this);
+    }
+
     /**
-     * Perform an authenticated call against `/v1/panel{$path}` and return the
-     * decoded `data` payload on success.
+     * Perform an authenticated call against `/v1{$path}` and return the decoded JSON body.
+     * Empty (`204`) responses come back as an empty array.
      *
      * @param  array<string, mixed>  $payload  Query string for GET, JSON body otherwise.
-     * @return array<string, mixed>
+     * @param  array<string, string>  $headers  Extra headers, e.g. `Idempotency-Key`.
+     * @return array<int|string, mixed>
      *
-     * @throws IrnotiApiException on any non-2xx / `{"success": false}` response.
+     * @throws IrnotiApiException on any non-2xx response.
      */
-    public function request(string $method, string $path, array $payload = []): array
+    public function request(string $method, string $path, array $payload = [], array $headers = []): array
     {
         $method = strtolower($method);
         $uri = self::API_PREFIX . $path;
+        $pending = $this->pendingRequest()->withHeaders($headers);
 
         $response = $method === 'get'
-            ? $this->pendingRequest()->get($uri, $payload)
-            : $this->pendingRequest()->{$method}($uri, $payload);
+            ? $pending->get($uri, $payload)
+            : $pending->{$method}($uri, $payload);
 
         return $this->unwrap($response);
     }
 
-    protected function pendingRequest(): PendingRequest
+    /**
+     * Multipart file upload (e.g. phonebook CSV import).
+     *
+     * @return array<int|string, mixed>
+     */
+    public function upload(string $path, string $field, string $contents, string $filename): array
     {
-        return Http::baseUrl($this->baseUrl)
+        $response = $this->pendingRequest(json: false)
+            ->asMultipart()
+            ->attach($field, $contents, $filename)
+            ->post(self::API_PREFIX . $path);
+
+        return $this->unwrap($response);
+    }
+
+    protected function pendingRequest(bool $json = true): PendingRequest
+    {
+        $pending = Http::baseUrl($this->baseUrl)
             ->withToken((string) $this->apiKey)
-            ->acceptJson()
-            ->asJson()
+            ->acceptJson();
+
+        // A forced JSON content type would stop Guzzle from adding the multipart boundary.
+        return ($json ? $pending->asJson() : $pending)
             ->timeout($this->timeout)
             ->retry($this->retryTimes, $this->retrySleep, throw: false);
     }
 
     /**
-     * @return array<string, mixed>
+     * @return array<int|string, mixed>
      */
     protected function unwrap(Response $response): array
     {
-        $payload = $response->json();
-
-        if (! is_array($payload) || ($payload['success'] ?? false) !== true) {
+        if (! $response->successful()) {
             throw IrnotiApiException::fromResponse($response);
         }
 
-        return $payload['data'] ?? [];
+        $body = $response->json();
+
+        return is_array($body) ? $body : [];
     }
 }

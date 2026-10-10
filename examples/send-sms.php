@@ -1,36 +1,30 @@
 <?php
 
 /**
- * Minimal usage outside of a Laravel app's service container — build the
- * client directly with an access key. Run with:
- *
- *   IRNOTI_API_KEY=irnt_xxx php examples/send-sms.php
+ * Inside any Laravel app with IRNOTI_API_KEY set.
  */
 
-require __DIR__ . '/../vendor/autoload.php';
-
 use Irnoti\SmsPanelApi\Exceptions\IrnotiApiException;
-use Irnoti\SmsPanelApi\IrnotiClient;
-
-$client = new IrnotiClient(
-    baseUrl: 'https://api.irnoti.com',
-    apiKey: getenv('IRNOTI_API_KEY') ?: throw new RuntimeException('Set IRNOTI_API_KEY first.'),
-);
+use Irnoti\SmsPanelApi\Facades\Irnoti;
 
 try {
-    $credit = $client->account()->credit();
-    printf("Wallet balance: %d Toman\n", $credit['wallet_balance_toman']);
+    $balance = Irnoti::wallet()->balance();               // ['balance' => '1840000', 'currency' => 'IRR']
+    $line = Irnoti::lines()->list()[0]['id'];
 
-    $result = $client->sms()->send(to: '09121234567', message: 'Hello from the irnoti SDK!');
-    printf("Message #%d queued, cost: %d Toman\n", $result['id'], $result['cost_toman']);
+    $quote = Irnoti::sms()->quote($line, 'Your order has shipped!', '09121234567');
+
+    $sent = Irnoti::sms()->send(
+        lineId: $line,
+        text: 'Your order has shipped!',
+        to: '09121234567',
+        idempotencyKey: 'order-1042',                      // safe to retry
+    );
+    // ['batchId' => '918', 'count' => 1, 'totalPrice' => '980', 'replayed' => false]
+
+    Irnoti::sms()->pattern(code: 'k3f9a2', to: '09121234567', params: ['code' => '4821']);
 } catch (IrnotiApiException $e) {
     if ($e->isInsufficientBalance()) {
-        fwrite(STDERR, "Top up your wallet before sending.\n");
-    } elseif ($e->isValidationError()) {
-        fwrite(STDERR, 'Validation failed: ' . json_encode($e->details()) . "\n");
-    } else {
-        fwrite(STDERR, "[{$e->errorCode()}] {$e->getMessage()}\n");
+        // top up the wallet
     }
-
-    exit(1);
+    report($e);
 }
