@@ -15,6 +15,6 @@ abstract class TestCase extends OrchestraTestCase
     protected function defineEnvironment($app): void
     {
         $app['config']->set('sms-panel-api.base_url', 'https://irnoti.test/api');
-        $app['config']->set('sms-panel-api.key', 'irnt_test_key');
+        $app['config']->set('sms-panel-api.key', 'irn_test_key');
     }
 }

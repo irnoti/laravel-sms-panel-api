@@ -3,25 +3,38 @@
 namespace Irnoti\SmsPanelApi\Resources;
 
 /**
- * The sent-message archive — always available, no ability scope required.
+ * Delivery archive. Statuses: `queued`, `sent`, `delivered`, `failed`. Scope: `sms.read`.
  */
 class MessagesResource extends Resource
 {
     /**
-     * List sent messages, most recent first.
+     * Newest first. Page backwards with `before` = id of the last message of the previous page.
      *
-     * @return array{items: array<int, array<string, mixed>>, meta: array{page: int, per_page: int, total: int, last_page: int}}
+     * @return array<int, array<string, mixed>>
      */
-    public function list(int $perPage = 20): array
+    public function list(?int $take = null, string|int|null $before = null): array
     {
-        return $this->client->request('get', '/sms/messages', ['per_page' => $perPage]);
+        return $this->client->request('get', '/sms/messages', $this->filter([
+            'take' => $take,
+            'before' => $before === null ? null : (string) $before,
+        ]));
     }
 
     /**
      * @return array<string, mixed>
      */
-    public function get(int $id): array
+    public function get(string|int $id): array
     {
-        return $this->client->request('get', "/sms/messages/{$id}");
+        return $this->client->request('get', '/sms/messages/' . rawurlencode((string) $id));
+    }
+
+    /**
+     * Ask the operator for the final delivery state right now (it is also polled in the background). 30/min.
+     *
+     * @return array<string, mixed>
+     */
+    public function check(string|int $id): array
+    {
+        return $this->client->request('post', '/sms/messages/' . rawurlencode((string) $id) . '/check');
     }
 }

@@ -21,4 +21,12 @@ abstract class Resource
     {
         return array_filter($payload, static fn ($value) => $value !== null);
     }
+
+    /**
+     * @return array<string, string>
+     */
+    protected function idempotency(?string $key): array
+    {
+        return $key === null ? [] : ['Idempotency-Key' => $key];
+    }
 }

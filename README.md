@@ -6,7 +6,7 @@
 
 <p align="center">
   Official, typed, fluent Laravel client for <a href="https://irnoti.com">irnoti</a>'s public SMS panel API —
-  send messages, run every campaign mode the dashboard offers, and sync your phonebook, without writing a single HTTP request by hand.
+  send messages, run every service the panel offers, manage your phonebook and verify webhooks, without writing a single HTTP request by hand.
 </p>
 
 <p align="center">
@@ -20,46 +20,38 @@
 
 ## Why this package
 
-irnoti gives every customer a REST API keyed by a per-account **access key** instead of a username/password — the same API documented at [irnoti.com/developers](https://irnoti.com/developers). This SDK is a thin, typed Laravel wrapper around that API, so your application talks to irnoti through readable PHP method calls instead of hand-built HTTP requests and ad-hoc JSON parsing:
+irnoti gives every customer a REST API keyed by a per-account **access key** (`irn_live_…` / `irn_test_…`) — documented at [irnoti.com/docs](https://irnoti.com/docs) (interactive OpenAPI at `/api/docs` on the API host). This SDK is a thin, typed Laravel wrapper around it:
 
 ```php
-Irnoti::sms()->send(to: '09121234567', message: 'Your order has shipped!');
+Irnoti::sms()->send(lineId: 1, to: '09121234567', text: 'Your order has shipped!');
 ```
 
-- **Full API coverage** — every endpoint irnoti exposes today: account, message archive, single/bulk send, and all seven campaign modes (scheduled, gradual, regional, targeted, peyamap, smart, link-tracker), plus phonebook contacts/groups.
-- **One exception type, stable error codes** — every API error becomes an `IrnotiApiException` carrying the same namespaced `error.code` the raw API returns (`sms.insufficient_balance`, `auth.invalid_key`, …), with convenience checks so you rarely need to compare strings.
-- **Laravel-native** — auto-discovered service provider, a facade, a publishable config file, and requests made through Laravel's own HTTP client (`Illuminate\Http\Client`), so `Http::fake()` works out of the box in your tests.
-- **Multi-tenant friendly** — bind a client to any access key at runtime with `withApiKey()`, for apps that hold one irnoti key per customer rather than one global key.
-- **Zero surprises** — the SDK does not guess at business rules (pricing, ability scopes, recipient caps); it only shapes and sends the request the same way the [API reference](https://irnoti.com/developers) describes, and surfaces exactly what irnoti answers.
+- **Full API coverage** — every endpoint reachable with an access key: SMS (send, quote, pattern, SOS, scheduled/gradual batches, message archive, lines), wallet, phonebook, provider services (regional, targeted, peyamap, smart, messenger, voice, international), link tracker, number banks, verify sessions, bot builder, VoIP — plus a webhook signature verifier.
+- **Typed errors** — every failure is an `IrnotiApiException` carrying the HTTP status and the API's stable `code` (`insufficient_balance`, `invalid_recipients`, `no_price`, …) with convenience checks.
+- **Laravel-native** — auto-discovered provider, facade, publishable config, requests through `Illuminate\Http\Client` so `Http::fake()` works in your tests.
+- **Multi-tenant friendly** — bind a client to any key at runtime with `withApiKey()`.
+- **Money-safe** — amounts are integer **Rial** values returned as **strings**; never cast them to float.
+- **Sandbox** — an `irn_test_…` key with `lineId: 'sandbox'` sends nothing and costs nothing.
 
 ## Requirements
 
 - PHP 8.2+
-- Laravel 10, 11 or 12 (`illuminate/support` + `illuminate/http`)
-- An irnoti account with an access key, minted from **`/dashboard/api-keys`** on your panel
+- Laravel 10, 11 or 12
+- An irnoti access key from the **Web service (وب‌سرویس)** section of your panel. Each key has *scopes*, an optional IP whitelist and can be a sandbox key.
 
 ## Installation
 
 ```bash
 composer require irnoti/laravel-sms-panel-api
+php artisan vendor:publish --tag=sms-panel-api-config   # optional
 ```
-
-The service provider and `Irnoti` facade are auto-discovered — no manual registration needed.
-
-Publish the config file (optional; sensible defaults come from environment variables):
-
-```bash
-php artisan vendor:publish --tag=sms-panel-api-config
-```
-
-Add your access key to `.env`:
 
 ```dotenv
-IRNOTI_API_KEY=irnt_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+IRNOTI_API_KEY=irn_live_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 IRNOTI_API_BASE_URL=https://api.irnoti.com
 ```
 
-> Treat the access key like a password. It is only ever shown once, at creation time, in `/dashboard/api-keys` — irnoti stores nothing but its hash. Revoke and reissue it from that same page if it's ever exposed.
+> The key is shown once at creation and only its hash is stored. Keep it server-side, never in a browser or app.
 
 ## Quick start
 
@@ -68,191 +60,203 @@ use Irnoti\SmsPanelApi\Facades\Irnoti;
 use Irnoti\SmsPanelApi\Exceptions\IrnotiApiException;
 
 try {
-    $credit = Irnoti::account()->credit();
-    // ['wallet_balance_toman' => 128000, 'panel_credit_sms' => 940, ...]
+    $line = Irnoti::lines()->list()[0]['id'];
 
     $sent = Irnoti::sms()->send(
+        lineId: $line,
         to: '09121234567',
-        message: 'Your verification code is 48213.',
+        text: 'Your verification code is 48213.',
+        idempotencyKey: 'otp-9921',
     );
-    // ['id' => 5821, 'status' => 'queued', 'cost_toman' => 150]
+    // ['batchId' => '918', 'count' => 1, 'totalPrice' => '980', 'replayed' => false]
 } catch (IrnotiApiException $e) {
     report($e);
 }
 ```
 
-Or inject `Irnoti\SmsPanelApi\IrnotiClient` wherever you'd rather avoid the facade — it's bound as a singleton in the container.
+Or inject `Irnoti\SmsPanelApi\IrnotiClient` (a container singleton). Every method returns the decoded JSON of the response (see PHPDoc for shapes) or throws `IrnotiApiException`.
+
+## Scopes at a glance
+
+| Scope | Allows |
+| --- | --- |
+| `sms.send` | send, pattern, SOS, batch cancel/pause/resume, link-tracker send, number-bank send, service orders, VoIP calls |
+| `sms.read` | quote, messages, lines, scheduled, service prices/orders, number banks, VoIP history |
+| `wallet.read` | balance and transactions |
+| `phonebook.read` / `phonebook.write` | read / change groups and contacts |
+| `bot.send` / `bot.read` | bot builder send+OTP / bots, subscribers, stats |
+| `verify.send` / `verify.read` | create+cancel / read verify sessions |
+
+A missing scope answers `403`. Sending also requires completed KYC (not for sandbox keys), and optional products (scheduled, gradual, SOS, pattern, link tracker, services, voip, …) must be enabled for your account.
 
 ## Usage
 
-Every resource method returns the plain PHP array decoded from the API's `data` field (see each method's PHPDoc for its exact shape) or throws `IrnotiApiException` on failure. List endpoints always come back as `['items' => [...], 'meta'? => [...]]`.
-
-### Account
+### Sending — `Irnoti::sms()`
 
 ```php
-Irnoti::account()->credit();   // wallet balance + upstream panel credit
-Irnoti::account()->numbers();  // sender numbers available to this account
+// One or many recipients and/or phonebook groups (max 10,000 numbers; Persian digits and +98 are fine).
+Irnoti::sms()->send(lineId: 1, text: 'Flash sale!', to: ['09121234567', '09351234567'], groupIds: [12]);
+
+// Cost without sending or charging.
+Irnoti::sms()->quote(lineId: 1, text: 'Flash sale!', to: '09121234567');   // count, parts, totalPrice
+
+// Later: 1 minute – 60 days ahead. The cost is reserved immediately.
+Irnoti::sms()->send(lineId: 1, text: 'Reminder', to: '09121234567', scheduledAt: now()->addDay());
+
+// Gradual: release 500 messages every 10 minutes (combinable with scheduledAt).
+Irnoti::sms()->send(lineId: 1, text: 'Hi', groupIds: [12], gradual: ['chunkSize' => 500, 'intervalMinutes' => 10]);
+
+// Approved template (pattern) — OTP / transactional.
+Irnoti::sms()->pattern(code: 'k3f9a2', to: '09121234567', params: ['code' => '4821']);
+
+// Critical alerts over the platform's own routes with automatic provider failover (≤ 200 recipients).
+Irnoti::sms()->sos(to: ['09121234567'], text: 'Service down');
 ```
 
-### Message archive
+Use `idempotencyKey:` on every send you might retry: the same key returns the original result with `replayed: true` instead of sending twice.
+
+### Messages, batches, lines
 
 ```php
-Irnoti::messages()->list(perPage: 50);
-Irnoti::messages()->get(id: 5821);
+Irnoti::messages()->list(take: 50);              // newest first; page with before: <last id>
+Irnoti::messages()->get(5521);                   // status: queued | sent | delivered | failed
+Irnoti::messages()->check(5521);                 // ask the operator now (30/min)
+
+Irnoti::batches()->scheduled();
+Irnoti::batches()->cancel(918);                  // refunds what has not been released
+Irnoti::batches()->pause(918);
+Irnoti::batches()->resume(918);
+
+Irnoti::lines()->list();                         // ids to use as lineId
 ```
 
-### Single & bulk send
+### Wallet
 
 ```php
-// One recipient, billed immediately. Requires the `sms.send` ability.
-Irnoti::sms()->send(to: '09121234567', message: 'Hello!', from: '3000123456');
-
-// Up to 200 recipients — mix raw numbers with phonebook group ids.
-// Requires the `sms.bulk` ability.
-Irnoti::sms()->bulk(
-    numbers: ['09121234567', '09129876543'],
-    message: 'Flash sale, today only!',
-    groupIds: [12],
-);
-```
-
-### Scheduled send — `scheduled.sms`
-
-Registered with the SMS provider itself, so the send fires even if your app is offline; cancel only works before it fires.
-
-```php
-Irnoti::scheduled()->list();
-
-Irnoti::scheduled()->create(
-    scheduledAt: '2026-09-20 09:00:00',
-    message: 'Reminder: your subscription renews tomorrow.',
-    numbers: ['09121234567'],
-);
-
-Irnoti::scheduled()->cancel(id: 91); // full refund if it hasn't fired yet
-```
-
-### Gradual send — `sms.gradual`
-
-Drains up to 20,000 recipients in chunks over time, run on irnoti's own side — pause and resume at will.
-
-```php
-Irnoti::gradual()->create(
-    chunkSize: 200,
-    intervalMinutes: 5,
-    message: 'New collection just dropped.',
-    groupIds: [3],
-);
-
-Irnoti::gradual()->pause(id: 44);
-Irnoti::gradual()->resume(id: 44);
-Irnoti::gradual()->cancel(id: 44); // refunds the undrained portion
-```
-
-### Regional send — `sms.regional`
-
-No recipient list — target a province (+ optional city) and a message count; irnoti's provider picks the numbers.
-
-```php
-Irnoti::regional()->create(
-    province: 'تهران',
-    count: 500,
-    message: "Today's special offer, just for Tehran.",
-);
-```
-
-### Targeted send — `sms.targeted`
-
-The demographic sibling of regional send — filter by gender, age range, province/city, operator, or job (at least one filter is required).
-
-```php
-Irnoti::targeted()->create(
-    count: 1000,
-    message: 'A deal built for you.',
-    gender: 'male',
-    ageMin: 20,
-    ageMax: 35,
-    province: 'اصفهان',
-);
-```
-
-### Peyamap send — `sms.peyamap`
-
-Target one mobile operator's postal-code bank across one or more map areas, each with its own count.
-
-```php
-Irnoti::peyamap()->create(
-    operator: 'mci',
-    areas: [
-        ['name' => 'District 3', 'count' => 300],
-        ['name' => 'District 6', 'count' => 200],
-    ],
-    message: 'Grand opening near you!',
-);
-```
-
-### Smart send — `sms.smart`
-
-Your own recipient list, delivered "smart": a push notification first, a billed SMS fallback only for whoever didn't see it. Immediate-only; pull the delivery split on demand.
-
-```php
-$send = Irnoti::smart()->create(message: 'Your appointment is tomorrow at 5 PM.', numbers: ['09121234567']);
-
-$status = Irnoti::smart()->refresh(id: $send['id']);
-// ['smart_count' => 1, 'sms_count' => 0, 'failed_count' => 0, 'pending_count' => 0, ...]
-```
-
-### Link tracker — `sms.link_tracker`
-
-Your own recipient list + a destination URL; irnoti mints a unique short link per recipient and reports clicks back.
-
-```php
-$campaign = Irnoti::linkTracker()->create(
-    targetUrl: 'https://yourshop.example/sale',
-    message: 'Check out our sale: {link}',
-    numbers: ['09121234567', '09129876543'],
-);
-
-$analytics = Irnoti::linkTracker()->get(id: $campaign['id']);
-// ['total_clicks' => 2, 'ctr_percent' => 100.0, 'links' => [...], ...]
+Irnoti::wallet()->balance();        // ['balance' => '1840000', 'currency' => 'IRR']
+Irnoti::wallet()->transactions();
 ```
 
 ### Phonebook
 
 ```php
-Irnoti::phonebook()->contacts()->list(keyword: 'Ali');
-Irnoti::phonebook()->contacts()->create(mobile: '09121234567', attributes: ['first_name' => 'Ali'], groupIds: [1]);
-Irnoti::phonebook()->contacts()->update(id: 7, attributes: ['company' => 'Acme']);
-Irnoti::phonebook()->contacts()->delete(id: 7);
-
-Irnoti::phonebook()->groups()->list();
-Irnoti::phonebook()->groups()->create(name: 'VIP customers');
+$group = Irnoti::phonebook()->createGroup('VIP');                     // 409 if the name exists
+Irnoti::phonebook()->addContacts($group['id'], [['mobile' => '09121234567', 'name' => 'Ali']]);
+Irnoti::phonebook()->importCsv($group['id'], file_get_contents('contacts.csv'));
+Irnoti::phonebook()->contacts($group['id'], take: 100, q: 'Ali');
+Irnoti::phonebook()->updateContact(7, ['company' => 'Acme', 'optedOut' => false]);
+Irnoti::phonebook()->deleteContact(7);
+Irnoti::phonebook()->groups();
+Irnoti::phonebook()->deleteGroup($group['id']);
 ```
+
+### Provider services — `Irnoti::services()`
+
+Regional, targeted, peyamap, smart, messenger, voice and international orders share one flow: **quote → create → refresh → cancel**.
+
+```php
+Irnoti::services()->prices();
+
+$body = ['province' => 'tehran', 'count' => 5000, 'text' => 'Sale today'];
+Irnoti::services()->quote('regional', $body);
+$order = Irnoti::services()->regional($body);
+
+Irnoti::services()->targeted(['gender' => 'female', 'ageFrom' => 20, 'ageTo' => 35, 'count' => 1000, 'text' => '…']);
+Irnoti::services()->peyamap(['operator' => 'mci', 'areas' => [['name' => 'Valiasr', 'count' => 500]], 'text' => '…']);
+Irnoti::services()->smart(['09121234567'], 'Hello');
+Irnoti::services()->messenger('bale', ['09121234567'], 'Hello');   // bale | eitaa | whatsapp
+Irnoti::services()->voice(['09121234567'], 'Your order is ready');
+Irnoti::services()->international(['+4915112345678'], 'Hello');
+
+Irnoti::services()->get('regional', $order['id']);
+Irnoti::services()->refresh('regional', $order['id']);
+Irnoti::services()->cancel('regional', $order['id']);              // only before the provider starts
+```
+
+### Link tracker
+
+```php
+Irnoti::linkTracker()->send(
+    lineId: 1, text: 'Sale: {link}', url: 'https://shop.example/sale',
+    to: ['09121234567'], variants: ['Big sale: {link}'], holdoutPercent: 20,
+);
+Irnoti::linkTracker()->campaigns();
+Irnoti::linkTracker()->campaign($batchId);   // clicks per link
+Irnoti::linkTracker()->holdouts();
+Irnoti::linkTracker()->sendNow($holdoutId);
+```
+
+### Number banks
+
+```php
+Irnoti::numberBanks()->list();
+Irnoti::numberBanks()->facets(2);
+Irnoti::numberBanks()->quote(bankId: 2, count: 1000, lineId: 1, text: 'Promo', filters: ['operator' => 'mci']);
+Irnoti::numberBanks()->send(bankId: 2, count: 1000, lineId: 1, text: 'Promo', filters: ['operator' => 'mci'], idempotencyKey: 'promo-1');
+```
+
+### Verify sessions
+
+```php
+$s = Irnoti::verify()->create(to: '09121234567', options: ['length' => 6, 'ttlSec' => 300, 'callbackUrl' => 'https://app.example/verified']);
+Irnoti::verify()->get($s['id']);
+Irnoti::verify()->cancel($s['id']);
+Irnoti::verify()->list(); Irnoti::verify()->stats(); Irnoti::verify()->info();
+```
+
+### Bot builder & VoIP
+
+```php
+Irnoti::bots()->list();
+Irnoti::bots()->send($botId, to: [...], message: [...], idempotencyKey: 'msg-1');   // 202, queued
+Irnoti::bots()->otp($botId, to: [...], length: 6);
+Irnoti::bots()->subscribers($botId); Irnoti::bots()->messages($botId); Irnoti::bots()->stats($botId);
+Irnoti::bots()->shopOrders($botId, status: 'new');
+
+Irnoti::voip()->price();
+Irnoti::voip()->call(from: '09121234567', to: '09351234567');
+Irnoti::voip()->calls();
+```
+
+Bot creation/configuration is panel-only; the `to`/`message` shapes follow the panel's bot sender.
+
+### Delivery webhooks
+
+Register the URL and copy the `whsec_…` signing key in the panel, then verify every call against the **raw** body:
+
+```php
+use Irnoti\SmsPanelApi\Support\Webhook;
+
+$event = Webhook::parse($request->getContent(), $request->header('X-Irnoti-Signature'), config('services.irnoti.webhook_secret'));
+// ['id' => '4821', 'event' => 'message.delivered', 'createdAt' => '…', 'data' => ['messageId' => '5521', 'status' => 'delivered', …]]
+```
+
+`Webhook::verify()` returns a bool instead of throwing. Events (`message.sent|delivered|failed`) may repeat or arrive out of order — de-duplicate on `X-Irnoti-Delivery`. Signatures older than 5 minutes are rejected. See `examples/webhook-controller.php`.
 
 ## Error handling
 
-Every failure — validation, an unauthenticated key, an insufficient wallet, a rate limit — is raised as a single `Irnoti\SmsPanelApi\Exceptions\IrnotiApiException`, carrying the exact fields the API answered with:
-
 ```php
-use Irnoti\SmsPanelApi\Exceptions\IrnotiApiException;
-
 try {
-    Irnoti::sms()->send(to: '09121234567', message: str_repeat('x', 1000));
+    Irnoti::sms()->send(lineId: 1, to: '0912', text: 'hi');
 } catch (IrnotiApiException $e) {
-    $e->errorCode();      // e.g. "validation.failed"
-    $e->statusCode();     // e.g. 422
-    $e->details();        // e.g. ['message' => ['The message field must not be greater than 600 characters.']]
-    $e->getMessage();     // English, human-readable
-
-    // Convenience checks for the most common cases:
-    $e->isInsufficientBalance();
-    $e->isRateLimited();
-    $e->isUnauthenticated();
-    $e->isValidationError();
+    $e->statusCode();   // 400
+    $e->errorCode();    // "invalid_recipients" ('' for plain 401/403/404)
+    $e->details();      // ['0912']  — invalid numbers / missing template params / field errors
+    $e->getMessage();
 }
 ```
 
-See the full `error.code` reference on [irnoti.com/developers](https://irnoti.com/developers).
+| Status | Meaning | Helper |
+| --- | --- | --- |
+| 400 | invalid request (`validation_error`, `invalid_recipients`, `missing_params`, `invalid_schedule`) | `isValidationError()`, `isInvalidRecipients()` |
+| 401 | bad/revoked key or IP not whitelisted | `isUnauthenticated()` |
+| 402 | `insufficient_balance` | `isInsufficientBalance()` |
+| 403 | missing scope, KYC incomplete, feature disabled, template not approved | `isForbidden()` |
+| 404 | not found | `isNotFound()` |
+| 409 | conflict (duplicate group, no SOS route) | `isConflict()` |
+| 422 | `no_price` — no tariff for the service | `isNoPrice()` |
+| 429 | rate limited (send 600/min, pattern 1200/min per IP) | `isRateLimited()` |
+| 5xx | server error — retry with the same idempotency key | `isServerError()` |
 
 ## Multi-tenant usage
 
@@ -274,8 +278,8 @@ $client->sms()->send(to: $customer->mobile, message: 'Welcome aboard!');
 
 | Key           | Environment variable     | Default                  | Description                                                      |
 | ------------- | ------------------------ | ------------------------ | ---------------------------------------------------------------- |
-| `base_url`    | `IRNOTI_API_BASE_URL`    | `https://api.irnoti.com` | Root of the panel API.                                           |
-| `key`         | `IRNOTI_API_KEY`         | —                        | Your access key from `/dashboard/api-keys`.                      |
+| `base_url`    | `IRNOTI_API_BASE_URL`    | `https://api.irnoti.com` | Root of the API (the client appends `/v1`).                      |
+| `key`         | `IRNOTI_API_KEY`         | —                        | Your access key from `the API keys page`.                      |
 | `timeout`     | `IRNOTI_API_TIMEOUT`     | `15`                     | Per-request timeout, in seconds.                                 |
 | `retry.times` | `IRNOTI_API_RETRY_TIMES` | `1`                      | Attempts for transient network failures (`1` disables retrying). |
 | `retry.sleep` | `IRNOTI_API_RETRY_SLEEP` | `200`                    | Delay between retries, in milliseconds.                          |
@@ -306,4 +310,4 @@ Released under the [MIT License](LICENSE.md).
 
 ---
 
-<p align="center">Built and maintained by <a href="https://irnoti.com">irnoti</a> — full API reference at <a href="https://irnoti.com/developers">irnoti.com/developers</a>.</p>
+<p align="center">Built and maintained by <a href="https://irnoti.com">irnoti</a> — full API reference at <a href="https://irnoti.com/docs">irnoti.com/docs</a>.</p>

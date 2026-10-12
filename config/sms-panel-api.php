@@ -7,7 +7,7 @@ return [
     | Base URL
     |--------------------------------------------------------------------------
     |
-    | The root of your irnoti panel API, without the "/v1/panel" suffix —
+    | The root of your irnoti panel API, without the "/v1" suffix —
     | the client appends that for you. Override per environment if you use
     | a staging panel.
     |
@@ -19,8 +19,8 @@ return [
     | Access key
     |--------------------------------------------------------------------------
     |
-    | The per-account access key minted from /dashboard/api-keys on your
-    | irnoti panel (format: irnt_<random>). Treat it like a password — never
+    | The per-account access key minted from the API keys page of your
+    | irnoti panel (irn_live_… for production, irn_test_… for the free sandbox). Treat it like a password — never
     | commit it, only read it from the environment.
     |
     */
