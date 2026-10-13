@@ -76,6 +76,43 @@ try {
 
 Or inject `Irnoti\SmsPanelApi\IrnotiClient` (a container singleton). Every method returns the decoded JSON of the response (see PHPDoc for shapes) or throws `IrnotiApiException`.
 
+## Quickstart
+
+New here? Follow **[QUICKSTART.md](QUICKSTART.md)**: install, get a key, send your first (free, sandbox) SMS in 5 minutes.
+
+## What can this SDK do? (function reference)
+
+Everything hangs off one client. Each row below is a *resource*, and links to its section in the API docs at [irnoti.com/docs](https://irnoti.com/docs) (open the docs panel and look for the section named in the "Docs section" column).
+
+| Resource | Docs section | What it is for | Functions |
+|---|---|---|---|
+| `Irnoti::sms()` | SMS | Send text messages | `send` (single / bulk / group / scheduled / gradual), `quote` (exact price, no send), `pattern` (approved OTP/transactional template), `sos` (guaranteed delivery with failover) |
+| `Irnoti::messages()` | SMS → Messages | Look up sent messages | `list`, `get`, `check` |
+| `Irnoti::batches()` | SMS → Batches | Control scheduled/gradual sends | `scheduled`, `cancel`, `pause`, `resume` |
+| `Irnoti::lines()` | SMS → Lines | Your sender numbers (you need a line id to send) | `list` |
+| `Irnoti::wallet()` | Wallet | Balance and history | `balance`, `transactions` |
+| `Irnoti::phonebook()` | Phonebook | Contact groups and contacts | `groups`, `createGroup`, `deleteGroup`, `contacts`, `addContacts`, `importCsv`, `updateContact`, `deleteContact` |
+| `Irnoti::services()` | Services | Provider products: `regional`, `targeted`, `peyamap`, `smart`, `messenger`, `voice`, `international` | `prices`, `internationalRates`, `list`, `quote`, `create`, `get`, `refresh`, `cancel`, `regional`, `targeted`, `peyamap`, `smart`, `messenger`, `voice`, `international` |
+| `Irnoti::linkTracker()` | Link tracker | SMS with tracked links, A/B variants, holdout | `send`, `holdouts`, `sendNow`, `campaigns`, `campaign` |
+| `Irnoti::numberBanks()` | Number banks | Send to purchased/filtered number banks | `list`, `facets`, `quote`, `send` |
+| `Irnoti::verify()` | Verify | OTP verification sessions (SMS or bot) | `info`, `create`, `list`, `get`, `cancel`, `stats` |
+| `Irnoti::bots()` | Bot builder | Read bots, send messages/OTP through them (creating bots is panel-only) | `info`, `list`, `get`, `stats`, `subscribers`, `messages`, `send`, `otp`, `shopOrders`, `shopStats` |
+| `Irnoti::voip()` | VoIP | Click-to-call | `calls`, `price`, `call` |
+
+Top-level helpers:
+
+| Function | What it does |
+|---|---|
+| `Irnoti::` facade or inject `IrnotiClient` | Create the client |
+| `Irnoti::withApiKey($key)` | New independent client for another customer key (multi-tenant) |
+| `Webhook::verify($rawBody, $signature, $secret)` | `true`/`false`: is this webhook really from irnoti? |
+| `Webhook::parse($rawBody, $signature, $secret)` | Verify and return the decoded event; fails if the signature is bad |
+| `IrnotiApiException` | Raised/returned on any non-2xx answer; has `statusCode()`, `errorCode()`, `details()` and helpers like `isInsufficientBalance()` |
+
+Every function is a thin wrapper over one HTTP endpoint and returns the API's JSON. Each method has a PHPDoc block with arguments and return shape; see `src/Resources/`.
+
+> Typical flow: `Irnoti::lines()->list()` → `Irnoti::sms()->quote()` → `Irnoti::sms()->send()` (with `idempotencyKey`) → `Irnoti::messages()->get()` / webhook. Use an `irn_test_…` key and line id `sandbox` while experimenting: nothing is sent or charged.
+
 ## Scopes at a glance
 
 | Scope | Allows |
