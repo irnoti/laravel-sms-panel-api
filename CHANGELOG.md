@@ -2,6 +2,11 @@
 
 All notable changes to this package are documented here. This project follows [Semantic Versioning](https://semver.org/).
 
+## [2.1.0] - 2026-10-14
+
+### Changed
+- `lineId` is now optional everywhere (`sms()->send`, `sms()->quote`, link tracker, number banks). When omitted it is not sent and the server chooses the sender line. Passing it still works exactly as before.
+
 ## [2.0.0] - 2026-10-10
 
 Rewritten for the new irnoti platform API (`https://api.irnoti.com/v1`). **Breaking**: the legacy `/v1/panel` service is no longer targeted.

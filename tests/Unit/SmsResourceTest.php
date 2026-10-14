@@ -37,6 +37,15 @@ class SmsResourceTest extends TestCase
             && $r->hasHeader('Authorization', 'Bearer irn_test_key'));
     }
 
+    public function test_send_omits_line_id_when_not_given(): void
+    {
+        Http::fake(['*' => Http::response(['batchId' => '1', 'count' => 1, 'totalPrice' => '980', 'replayed' => false])]);
+
+        app(IrnotiClient::class)->sms()->send(text: 'hi', to: '09121234567');
+
+        Http::assertSent(fn ($r) => ! array_key_exists('lineId', $r->data()) && $r['text'] === 'hi');
+    }
+
     public function test_send_formats_scheduled_date_and_gradual(): void
     {
         Http::fake(['*' => Http::response(['batchId' => '1', 'count' => 1, 'totalPrice' => '980', 'replayed' => false])]);
